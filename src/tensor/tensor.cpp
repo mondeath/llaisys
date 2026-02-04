@@ -169,18 +169,17 @@ bool Tensor::isContiguous() const {
     const auto& strides = this->strides();
     const auto& shape   = this->shape();
 
-    size_t expected_stride = 1;
+    ptrdiff_t expected_stride = 1;
 
     for (size_t i = strides.size(); i-- > 0; ) {
         if (strides[i] != expected_stride) {
             return false;
         }
-        expected_stride *= shape[i];
+        expected_stride *= static_cast<ptrdiff_t>(shape[i]);
     }
 
     return true;
 }
-
 
 tensor_t Tensor::permute(const std::vector<size_t> &order) const {
     const size_t n = ndim();
