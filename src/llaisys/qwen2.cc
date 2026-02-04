@@ -1,11 +1,11 @@
 #include "llaisys/models/qwen2.h"
 #include "llaisys/ops.h"
 #include "llaisys/tensor.h"   
-#include "../utils/check.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
-#include <stdio.h>
+#include <cstdio>
+#include <exception>
 
  struct LlaisysQwen2Model{
     LlaisysQwen2Meta meta;
@@ -168,7 +168,7 @@ __export LlaisysQwen2Model* llaisysQwen2ModelCreate(
         }
     }
 
-    // after per-layer weight tensors created ...
+    // after per-layer weight tensors created
     {
         model->cur_pos = 0;
 
@@ -269,7 +269,7 @@ __export LlaisysQwen2Model* llaisysQwen2ModelCreate(
             std::memset(tensorGetData(model->s_lm_bias), 0, VOC * 2);
         }
 
-          // x2_norm: [MS, HS]
+        // x2_norm: [MS, HS]
         {
             size_t s[2] = { MS, HS };
             model->s_x2_norm = tensorCreate(s, 2, meta->dtype, device, dev_id);
@@ -390,28 +390,15 @@ __export void llaisysQwen2ModelDestroy(LlaisysQwen2Model* model) {
 __export LlaisysQwen2Weights* llaisysQwen2ModelWeights(LlaisysQwen2Model* model){
     return &model->w;
 }
-
-__export int64_t llaisysQwen2ModelInfer(LlaisysQwen2Model* model, int64_t* token_ids, size_t ntoken) {
+static int64_t qwen2_infer_impl(LlaisysQwen2Model* model, int64_t* token_ids, size_t ntoken) {
     const size_t qlen = ntoken;
     const size_t HS = model->meta.hs;
     const size_t NH = model->meta.nh;
     const size_t DH = model->meta.dh;
     const size_t KVH = model->meta.nkvh;
     const float  scale = 1.0f / std::sqrt((float)DH);
-
-    // ---------- basic guards ----------
-    // ASSERT(qlen <= model->meta.maxseq, "infer: qlen > maxseq");
-    // ASSERT(qlen >= 1, "infer: qlen must be >= 1");
-
-    const bool is_prefill = (model->cur_pos == 0 && qlen > 1);
     
-    static int dbg = 0;
-    if (dbg < 50) {
-        fprintf(stderr, "[infer] ntoken=%zu cur_pos=%zu prefill=%d\n",
-                ntoken, model->cur_pos, (int)is_prefill);
-        fflush(stderr);
-        dbg++;
-    }
+    const bool is_prefill = (model->cur_pos == 0 && qlen > 1);
 
     // ---------- write token ids into s_tokens[0:qlen] ----------
     {
@@ -548,12 +535,10 @@ __export int64_t llaisysQwen2ModelInfer(LlaisysQwen2Model* model, int64_t* token
     // ============================================================
 
     const size_t t = qlen - 1;
-    const size_t cached = model->cur_pos;
-    ASSERT(cached == t, "decode: cached != t (sequence mismatch)");
-
+    
     // tok_last: [1]
     llaisysTensor_t tok_last = tensorSlice(model->s_tokens, 0, t, t + 1);
-    // x0_last: [1, hs]  (写在 s_x0 的最后一行也行，但你现在用 slice，就沿用)
+    // x0_last: [1, hs] 
     llaisysTensor_t x0_last  = tensorSlice(model->s_x0,     0, t, t + 1);
     llaisysEmbedding(x0_last, tok_last, model->w.in_embed);
 
@@ -671,4 +656,16 @@ __export int64_t llaisysQwen2ModelInfer(LlaisysQwen2Model* model, int64_t* token
 
     return out_id;
 }
+__export int64_t llaisysQwen2ModelInfer(LlaisysQwen2Model* model, int64_t* token_ids, size_t ntoken) {
+    try {
+        return qwen2_infer_impl(model, token_ids, ntoken);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "llaisysQwen2ModelInfer exception: %s\n", e.what());
+        return -1;
+    } catch (...) {
+        std::fprintf(stderr, "llaisysQwen2ModelInfer unknown exception\n");
+        return -1;
+    }
+}
+
 }
