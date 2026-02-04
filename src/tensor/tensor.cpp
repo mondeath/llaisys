@@ -164,23 +164,23 @@ void Tensor::debug() const {
 }
 
 bool Tensor::isContiguous() const {
-    if(numel() == 0) return true;
+    if (numel() == 0) return true;
 
     const auto& strides = this->strides();
-    const auto& shape = this->shape();
-    ptrdiff_t expeceted_stride = 1;
+    const auto& shape   = this->shape();
 
-    for(int i = strides.size() - 1; i >= 0; i--)
-    {
-        if(strides[i] != expeceted_stride){
+    size_t expected_stride = 1;
+
+    for (size_t i = strides.size(); i-- > 0; ) {
+        if (strides[i] != expected_stride) {
             return false;
         }
-
-        expeceted_stride *= shape[i];
+        expected_stride *= shape[i];
     }
-    
+
     return true;
 }
+
 
 tensor_t Tensor::permute(const std::vector<size_t> &order) const {
     const size_t n = ndim();
@@ -228,7 +228,7 @@ tensor_t Tensor::view(const std::vector<size_t> &new_shape) const {
         ptrdiff_t s = 1;
         for(size_t i = 1; i <= new_shape.size(); i++){
             new_strides[new_shape.size() - i] = s;
-            s *= (ptrdiff_t)new_shape[new_shape.size() - i];
+            s *= static_cast<ptrdiff_t>(new_shape[new_shape.size() - i]);
         }
         TensorMeta meta{dtype(), new_shape, new_strides};
         return tensor_t(new Tensor(meta, _storage, _offset));
@@ -277,7 +277,7 @@ tensor_t Tensor::view(const std::vector<size_t> &new_shape) const {
                     throw std::runtime_error("Tensor::view: incompatible shape");
                 }
                 // old 扩维必须保证可合并（无洞）
-                if (ostrides[j] != ostrides[j + 1] * (ptrdiff_t)oshape[j + 1]) {
+                if (ostrides[j] != ostrides[j + 1] * static_cast<ptrdiff_t>(oshape[j + 1])) {
                     throw std::runtime_error("Tensor::view: incompatible shape -- not contiguous");
                 }
                 ++j;
@@ -296,7 +296,7 @@ tensor_t Tensor::view(const std::vector<size_t> &new_shape) const {
         nstrides_comp[t] = base;
 
         for (size_t p = t; p-- > k; ) {
-            nstrides_comp[p] = nstrides_comp[p + 1] * (ptrdiff_t)nshape_comp[p + 1];
+            nstrides_comp[p] = nstrides_comp[p + 1] * static_cast<ptrdiff_t>(nshape_comp[p + 1]);
         }
 
         i = j + 1;
@@ -337,7 +337,12 @@ tensor_t Tensor::slice(size_t dim, size_t start, size_t end) const {
 
     std::vector<ptrdiff_t> new_strides = _meta.strides;
 
-    size_t new_offset = _offset + start * _meta.strides[dim] * elementSize();
+    ptrdiff_t byte_off = static_cast<ptrdiff_t>(start) * _meta.strides[dim] *
+                     static_cast<ptrdiff_t>(elementSize());
+    if (byte_off < 0) {
+        throw std::runtime_error("Tensor::slice: negative offset");
+    }
+    size_t new_offset = _offset + static_cast<size_t>(byte_off);
 
     TensorMeta meta = {dtype(), new_shape, new_strides};
     return tensor_t(new Tensor(meta, _storage, new_offset));
